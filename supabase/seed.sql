@@ -27,11 +27,11 @@ begin
 
   select id into class_b from public.classes where class_name = 'JSS 1B' and teacher_id = teacher_uuid limit 1;
 
-  insert into public.students (full_name, username, class_level)
+  insert into public.students (full_name, username, class_level, created_by_teacher_id)
   values
-    ('Amina Yusuf', 'amina01', 'JSS 1'),
-    ('Daniel Okoro', 'daniel02', 'JSS 1'),
-    ('Grace Bello', 'grace03', 'JSS 1')
+    ('Amina Yusuf', 'amina01', 'JSS 1', teacher_uuid),
+    ('Daniel Okoro', 'daniel02', 'JSS 1', teacher_uuid),
+    ('Grace Bello', 'grace03', 'JSS 1', teacher_uuid)
   returning id into student_1;
 
   select id into student_2 from public.students where username = 'daniel02' limit 1;

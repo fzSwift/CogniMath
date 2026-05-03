@@ -18,8 +18,16 @@ export function LoginPage() {
     setLoading(true);
     setError("");
     const { error: signInError } = await supabase.auth.signInWithPassword({ email, password });
-    if (signInError) setError(signInError.message);
-    else navigate("/dashboard");
+    if (signInError) {
+      const msg = signInError.message.toLowerCase();
+      if (msg.includes("email not confirmed") || signInError.message.includes("confirm")) {
+        setError("Confirm your email first, then sign in again. Check your inbox (and spam) for the Supabase link.");
+      } else {
+        setError(signInError.message);
+      }
+    } else {
+      navigate("/dashboard");
+    }
     setLoading(false);
   };
 

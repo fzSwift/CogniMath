@@ -67,7 +67,17 @@ export function ClassesPage() {
     const { data: userData } = await supabase.auth.getUser();
     if (!userData.user) return;
     setListError("");
-    const { error } = await supabase.from("classes").insert({ class_name: name, description, teacher_id: userData.user.id });
+    const { data: profile } = await supabase.from("profiles").select("full_name").eq("id", userData.user.id).maybeSingle();
+    const teacherLabel = (profile?.full_name ?? "").trim() || "Your teacher";
+    const custom = description.trim();
+    const descriptionWithTeacher = custom
+      ? `${custom}\n\nTeacher: ${teacherLabel}.`
+      : `Teacher: ${teacherLabel}.`;
+    const { error } = await supabase.from("classes").insert({
+      class_name: name,
+      description: descriptionWithTeacher,
+      teacher_id: userData.user.id,
+    });
     if (error) {
       setListError(error.message);
       return;
@@ -128,7 +138,13 @@ export function ClassesPage() {
           <h3 className="mb-3 font-semibold">Create Class</h3>
           <form onSubmit={createClass} className="space-y-3">
             <input className="w-full rounded border p-2" placeholder="Class name" value={name} onChange={(e) => setName(e.target.value)} required />
-            <textarea className="w-full rounded border p-2" placeholder="Description" value={description} onChange={(e) => setDescription(e.target.value)} />
+            <textarea
+              className="w-full rounded border p-2"
+              placeholder="Optional notes for your class (your name is added automatically for students)"
+              value={description}
+              onChange={(e) => setDescription(e.target.value)}
+            />
+            <p className="text-xs text-slate-500">Students see “Teacher: …” in the class description (appended when you save).</p>
             <button type="submit" className="rounded bg-indigo-600 px-4 py-2 text-white">
               Save
             </button>

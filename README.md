@@ -57,6 +57,8 @@ npm install
    - `supabase/upgrade_leaderboard_teacher_rls.sql` (if leaderboard `SELECT` was still fully open — restrict reads to the class teacher)
    - `supabase/upgrade_student_answers_delete_policy.sql` (only if deleting questions fails under RLS)
    - `supabase/upgrade_create_student_for_class.sql` (teacher **Students** page: `create_student_for_class` RPC — create + enroll atomically)
+   - `supabase/upgrade_bootstrap_teacher_workspace.sql` (`bootstrap_teacher_workspace` RPC — ensure `profiles` row + starter class if teacher has none)
+   - `supabase/upgrade_admin_teacher_isolation.sql` (`created_by_teacher_id`, stricter student visibility, admin RLS, RPC/view updates)
 
 4. Create `.env` in project root from `.env.example`:
 
@@ -93,6 +95,21 @@ Without those redirects on the allow list, Supabase may block or ignore `emailRe
 - `schema.sql` includes tables, RLS, the auth trigger that creates a **teacher** profile, invite codes and join-request RPCs, analytics views, leaderboard tables/views/trigger, and helper functions used by policies.
 - **Teachers** (`authenticated`): RLS limits reads and writes to classes, question sets, students, attempts, and related data they own or that belong to their enrollments.
 - **Game clients (e.g. Unity)** should use the **anon** key with the policies intended for play: read **active** question sets and questions; insert/update attempts, answers, and progress only when the `student_id` is **enrolled** in the question set’s class and the class/set are active. Join requests use `submit_class_join_request` (anon allowed).
+
+### Multi-tenant isolation (teachers vs admin)
+
+- **`teacher`** accounts (default at signup) only see rows tied to them: classes where `teacher_id` is their profile id, question sets for those classes, join requests for those classes, attempts for those sets, and **students** who are either enrolled in one of their classes **or** were created by them (`students.created_by_teacher_id`). Other teachers’ data is hidden by RLS.
+- **`admin`** accounts see and manage **everything** via extra policies (`is_admin()` reads `profiles.role = 'admin'`). Promote a user in the SQL Editor (service role / postgres), for example:
+
+```sql
+update public.profiles set role = 'admin' where id = '<paste-auth-user-uuid>';
+```
+
+Run **`supabase/upgrade_admin_teacher_isolation.sql`** on existing projects so this column, policies, RPC updates, and `student_teacher_metrics` stay in sync.
+
+### Teacher workspace bootstrap
+
+After login, protected routes call `bootstrap_teacher_workspace` once per session. It inserts a missing **`profiles`** row (fixes `classes_teacher_id_fkey` when the auth trigger did not run) and creates **My class** when the teacher has **no class rows at all** (including archived). Rename or archive that class under **Classes** if you like.
 
 ### Teacher: create student + enroll
 

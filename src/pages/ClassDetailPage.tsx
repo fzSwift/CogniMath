@@ -90,7 +90,20 @@ export function ClassDetailPage() {
     if (!id) return;
     setEditBusy(true);
     setActionError("");
-    const { error } = await supabase.from("classes").update({ class_name: editName.trim(), description: editDescription.trim() || null }).eq("id", id);
+    const { data: userData } = await supabase.auth.getUser();
+    const uid = userData.user?.id;
+    let descOut = editDescription.trim();
+    if (uid) {
+      const { data: prof } = await supabase.from("profiles").select("full_name").eq("id", uid).maybeSingle();
+      const teacherLabel = (prof?.full_name ?? "").trim() || "Your teacher";
+      if (!descOut.toLowerCase().includes("teacher:")) {
+        descOut = descOut ? `${descOut}\n\nTeacher: ${teacherLabel}.` : `Teacher: ${teacherLabel}.`;
+      }
+    }
+    const { error } = await supabase
+      .from("classes")
+      .update({ class_name: editName.trim(), description: descOut || null })
+      .eq("id", id);
     setEditBusy(false);
     if (error) {
       setActionError(error.message);

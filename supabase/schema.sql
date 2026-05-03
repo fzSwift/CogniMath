@@ -127,13 +127,39 @@ alter table public.students add column if not exists archived_at timestamp with 
 create unique index if not exists classes_invite_code_key on public.classes (invite_code)
   where invite_code is not null;
 
-create or replace function public.is_teacher() returns boolean
-language sql stable as $$
-  select exists(
+alter table public.students add column if not exists created_by_teacher_id uuid references public.profiles (id) on delete set null;
+create index if not exists students_created_by_teacher_idx on public.students (created_by_teacher_id)
+  where created_by_teacher_id is not null;
+
+-- RLS helpers (SECURITY DEFINER so checks do not recurse through profiles policies).
+create or replace function public.is_admin() returns boolean
+language sql
+stable
+security definer
+set search_path = public
+as $$
+  select exists (
     select 1 from public.profiles p
-    where p.id = auth.uid() and p.role = 'teacher'
+    where p.id = auth.uid() and p.role = 'admin'
   );
 $$;
+
+create or replace function public.is_teacher_account() returns boolean
+language sql
+stable
+security definer
+set search_path = public
+as $$
+  select exists (
+    select 1 from public.profiles p
+    where p.id = auth.uid() and p.role in ('teacher', 'admin')
+  );
+$$;
+
+revoke all on function public.is_admin() from public;
+revoke all on function public.is_teacher_account() from public;
+grant execute on function public.is_admin() to authenticated;
+grant execute on function public.is_teacher_account() to authenticated;
 
 -- Enrollment + active class/set; used by RLS for anon (Unity) play paths.
 create or replace function public.student_can_use_question_set(p_student_id uuid, p_question_set_id uuid)
@@ -194,12 +220,34 @@ for select using (id = auth.uid());
 create policy "teacher updates own profile" on public.profiles
 for update using (id = auth.uid());
 
+create or replace function public.enforce_profile_role_change()
+returns trigger
+language plpgsql
+security definer
+set search_path = public
+as $$
+begin
+  if new.role is distinct from old.role then
+    if not exists (select 1 from public.profiles p where p.id = auth.uid() and p.role = 'admin') then
+      raise exception 'Only an admin may change profiles.role';
+    end if;
+  end if;
+  return new;
+end;
+$$;
+
+drop trigger if exists profiles_role_guard on public.profiles;
+create trigger profiles_role_guard
+before update on public.profiles
+for each row execute function public.enforce_profile_role_change();
+
 create policy "teacher manages own classes" on public.classes
 for all using (teacher_id = auth.uid()) with check (teacher_id = auth.uid());
 
 create policy "teacher can read students in own classes" on public.students
 for select using (
-  exists (
+  created_by_teacher_id = auth.uid()
+  or exists (
     select 1
     from public.class_students cs
     join public.classes c on c.id = cs.class_id
@@ -208,11 +256,12 @@ for select using (
 );
 
 create policy "teacher can create students" on public.students
-for insert with check (public.is_teacher());
+for insert with check (public.is_teacher_account());
 
 create policy "teacher can update students in own classes" on public.students
 for update using (
-  exists (
+  created_by_teacher_id = auth.uid()
+  or exists (
     select 1
     from public.class_students cs
     join public.classes c on c.id = cs.class_id
@@ -227,6 +276,16 @@ for delete using (
     from public.class_students cs
     join public.classes c on c.id = cs.class_id
     where cs.student_id = students.id and c.teacher_id = auth.uid()
+  )
+  or (
+    created_by_teacher_id = auth.uid()
+    and not exists (
+      select 1
+      from public.class_students cs2
+      join public.classes c2 on c2.id = cs2.class_id
+      where cs2.student_id = students.id
+        and c2.teacher_id is distinct from auth.uid()
+    )
   )
 );
 
@@ -398,6 +457,71 @@ grant insert on public.student_answers to anon;
 grant insert, update on public.student_progress to anon;
 
 -- ---------------------------------------------------------------------------
+-- Platform admin: full access to all rows (set profiles.role = 'admin' for that user).
+-- Teachers remain scoped by teacher_id / enrollment; anon gameplay policies unchanged.
+-- ---------------------------------------------------------------------------
+
+drop policy if exists "admin full access profiles" on public.profiles;
+create policy "admin full access profiles" on public.profiles
+for all to authenticated
+using (public.is_admin())
+with check (public.is_admin());
+
+drop policy if exists "admin full access classes" on public.classes;
+create policy "admin full access classes" on public.classes
+for all to authenticated
+using (public.is_admin())
+with check (public.is_admin());
+
+drop policy if exists "admin full access students" on public.students;
+create policy "admin full access students" on public.students
+for all to authenticated
+using (public.is_admin())
+with check (public.is_admin());
+
+drop policy if exists "admin full access class_students" on public.class_students;
+create policy "admin full access class_students" on public.class_students
+for all to authenticated
+using (public.is_admin())
+with check (public.is_admin());
+
+drop policy if exists "admin full access class_join_requests" on public.class_join_requests;
+create policy "admin full access class_join_requests" on public.class_join_requests
+for all to authenticated
+using (public.is_admin())
+with check (public.is_admin());
+
+drop policy if exists "admin full access question_sets" on public.question_sets;
+create policy "admin full access question_sets" on public.question_sets
+for all to authenticated
+using (public.is_admin())
+with check (public.is_admin());
+
+drop policy if exists "admin full access questions" on public.questions;
+create policy "admin full access questions" on public.questions
+for all to authenticated
+using (public.is_admin())
+with check (public.is_admin());
+
+drop policy if exists "admin full access student_attempts" on public.student_attempts;
+create policy "admin full access student_attempts" on public.student_attempts
+for all to authenticated
+using (public.is_admin())
+with check (public.is_admin());
+
+drop policy if exists "admin full access student_answers" on public.student_answers;
+create policy "admin full access student_answers" on public.student_answers
+for all to authenticated
+using (public.is_admin())
+with check (public.is_admin());
+
+drop policy if exists "admin full access student_progress" on public.student_progress;
+create policy "admin full access student_progress" on public.student_progress
+for all to authenticated
+using (public.is_admin())
+with check (public.is_admin());
+
+-- ---------------------------------------------------------------------------
 -- Leaderboard: difficulty-weighted points on correct answers + views.
 -- final_points = base_points × multiplier (multiplier = difficulty_level 1–5).
 -- period_type: trigger sets 'answer'; default 'weekly' applies only when inserting without it.
@@ -440,6 +564,12 @@ for select using (
 
 create policy "leaderboard_points_insert_public" on public.leaderboard_points
 for insert with check (true);
+
+drop policy if exists "admin full access leaderboard_points" on public.leaderboard_points;
+create policy "admin full access leaderboard_points" on public.leaderboard_points
+for all to authenticated
+using (public.is_admin())
+with check (public.is_admin());
 
 grant select, insert on public.leaderboard_points to anon, authenticated;
 
@@ -676,6 +806,60 @@ create trigger on_auth_user_created
 after insert on auth.users
 for each row execute function public.handle_new_user();
 
+-- Ensures profiles row (fixes classes.teacher_id → profiles FK on first login if trigger missed).
+-- Adds one starter class when the teacher has never had any class row (including archived).
+create or replace function public.bootstrap_teacher_workspace()
+returns void
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  uid uuid := auth.uid();
+  meta jsonb;
+  em text;
+  v_teacher_name text;
+begin
+  if uid is null then
+    raise exception 'Not authenticated';
+  end if;
+
+  if not exists (select 1 from public.profiles p where p.id = uid) then
+    select u.raw_user_meta_data, u.email into meta, em
+    from auth.users u
+    where u.id = uid;
+    if not found then
+      raise exception 'Auth user missing';
+    end if;
+    insert into public.profiles (id, full_name, role)
+    values (
+      uid,
+      coalesce(
+        nullif(trim(meta->>'full_name'), ''),
+        nullif(trim(split_part(em, '@', 1)), ''),
+        'Teacher'
+      ),
+      'teacher'
+    )
+    on conflict (id) do nothing;
+  end if;
+
+  select coalesce(nullif(trim(p.full_name), ''), 'Your teacher') into v_teacher_name
+  from public.profiles p
+  where p.id = uid;
+
+  insert into public.classes (teacher_id, class_name, description)
+  select
+    uid,
+    'My class',
+    'Teacher: ' || v_teacher_name || E'.\n\nYou can rename this class and edit this text under Classes.'
+  where not exists (select 1 from public.classes c where c.teacher_id = uid);
+end;
+$$;
+
+revoke all on function public.bootstrap_teacher_workspace() from public;
+grant execute on function public.bootstrap_teacher_workspace() to authenticated;
+
 create or replace function public.submit_class_join_request(
   p_invite_code text,
   p_full_name text,
@@ -755,7 +939,8 @@ begin
     raise exception 'Request not found';
   end if;
 
-  if v_teacher_id <> auth.uid() then
+  if v_teacher_id is distinct from auth.uid()
+     and not exists (select 1 from public.profiles p where p.id = auth.uid() and p.role = 'admin') then
     raise exception 'Not authorized';
   end if;
 
@@ -766,8 +951,8 @@ begin
   select id into v_student_id from public.students where lower(username) = lower(v_username);
 
   if v_student_id is null then
-    insert into public.students (full_name, username, class_level, archived_at)
-    values (v_full_name, v_username, null, null)
+    insert into public.students (full_name, username, class_level, archived_at, created_by_teacher_id)
+    values (v_full_name, v_username, null, null, v_teacher_id)
     returning id into v_student_id;
   else
     update public.students set full_name = v_full_name where id = v_student_id;
@@ -801,7 +986,8 @@ begin
     raise exception 'Request not found';
   end if;
 
-  if v_teacher_id <> auth.uid() then
+  if v_teacher_id is distinct from auth.uid()
+     and not exists (select 1 from public.profiles p where p.id = auth.uid() and p.role = 'admin') then
     raise exception 'Not authorized';
   end if;
 
@@ -835,8 +1021,11 @@ begin
   if not exists (
     select 1 from public.classes c
     where c.id = p_class_id
-      and c.teacher_id = auth.uid()
       and c.archived_at is null
+      and (
+        c.teacher_id = auth.uid()
+        or exists (select 1 from public.profiles p where p.id = auth.uid() and p.role = 'admin')
+      )
   ) then
     raise exception 'Class not found or access denied';
   end if;
@@ -852,8 +1041,8 @@ begin
 
   v_level := nullif(trim(coalesce(p_class_level, '')), '');
 
-  insert into public.students (full_name, username, class_level, archived_at)
-  values (trim(p_full_name), v_username, v_level, null)
+  insert into public.students (full_name, username, class_level, archived_at, created_by_teacher_id)
+  values (trim(p_full_name), v_username, v_level, null, auth.uid())
   returning id into v_student_id;
 
   insert into public.class_students (class_id, student_id)
@@ -980,9 +1169,10 @@ select
    join public.classes c on c.id = qs.class_id and c.teacher_id = auth.uid()
    where sa.student_id = s.id) as passed_count
 from public.students s
-where exists (
-  select 1
-  from public.class_students cs
-  join public.classes c on c.id = cs.class_id and c.teacher_id = auth.uid()
-  where cs.student_id = s.id
-);
+where s.created_by_teacher_id = auth.uid()
+   or exists (
+    select 1
+    from public.class_students cs
+    join public.classes c on c.id = cs.class_id and c.teacher_id = auth.uid()
+    where cs.student_id = s.id
+  );

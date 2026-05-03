@@ -23,8 +23,11 @@ begin
   if not exists (
     select 1 from public.classes c
     where c.id = p_class_id
-      and c.teacher_id = auth.uid()
       and c.archived_at is null
+      and (
+        c.teacher_id = auth.uid()
+        or exists (select 1 from public.profiles p where p.id = auth.uid() and p.role = 'admin')
+      )
   ) then
     raise exception 'Class not found or access denied';
   end if;
@@ -40,8 +43,8 @@ begin
 
   v_level := nullif(trim(coalesce(p_class_level, '')), '');
 
-  insert into public.students (full_name, username, class_level, archived_at)
-  values (trim(p_full_name), v_username, v_level, null)
+  insert into public.students (full_name, username, class_level, archived_at, created_by_teacher_id)
+  values (trim(p_full_name), v_username, v_level, null, auth.uid())
   returning id into v_student_id;
 
   insert into public.class_students (class_id, student_id)

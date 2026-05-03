@@ -126,6 +126,9 @@ export function SettingsPage() {
           </label>
           <p className="text-xs text-slate-500">
             Role: <span className="font-medium text-slate-700">{profile?.role ?? "teacher"}</span>
+            {profile?.role === "admin"
+              ? " — platform admin: RLS allows access to every teacher’s classes and students."
+              : " — teacher accounts only see their own classes, enrollments, and students they created."}
           </p>
           {profileErr ? <Alert variant="error">{profileErr}</Alert> : null}
           {profileMsg ? <Alert variant="info">{profileMsg}</Alert> : null}

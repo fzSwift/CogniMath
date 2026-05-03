@@ -1,7 +1,8 @@
 export interface Profile {
   id: string;
   full_name: string;
-  role: string;
+  /** Default signup is `teacher`; set `admin` in SQL for platform operators (see README). */
+  role: "teacher" | "admin" | string;
   created_at: string;
 }
 
@@ -59,6 +60,8 @@ export interface Student {
   /** Null when active; set when soft-archived (requires DB migration). */
   archived_at?: string | null;
   created_at: string;
+  /** Teacher who created this row (visibility + class picker); optional on older rows. */
+  created_by_teacher_id?: string | null;
 }
 
 /** Row from `student_teacher_metrics` (teacher-scoped list + aggregates). */
