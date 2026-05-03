@@ -73,6 +73,22 @@ npm run dev
 
 ## Supabase Notes
 
+### Auth confirmation links (production)
+
+Signup sends `emailRedirectTo` so the confirmation button uses whatever origin the user registered from (e.g. [https://cogni-math.vercel.app](https://cogni-math.vercel.app/) in production).
+
+You still must allow that URL in the Supabase project:
+
+1. Open **Authentication → URL Configuration** in the [Supabase Dashboard](https://supabase.com/dashboard).
+2. Set **Site URL** to your primary deployed URL, e.g. `https://cogni-math.vercel.app`.
+3. Under **Redirect URLs**, add:
+   - `https://cogni-math.vercel.app/**`
+   - `http://localhost:5173/**` (or your local dev port) so confirmation works locally too.
+
+Without those redirects on the allow list, Supabase may block or ignore `emailRedirectTo`.
+
+---
+
 - `src/lib/supabase.ts` initializes the Supabase client from environment variables (teacher dashboard uses the **anon** publishable key with **authenticated** sessions after login).
 - `schema.sql` includes tables, RLS, the auth trigger that creates a **teacher** profile, invite codes and join-request RPCs, analytics views, leaderboard tables/views/trigger, and helper functions used by policies.
 - **Teachers** (`authenticated`): RLS limits reads and writes to classes, question sets, students, attempts, and related data they own or that belong to their enrollments.
