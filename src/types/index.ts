@@ -73,6 +73,8 @@ export interface StudentTeacherMetric {
   created_at: string;
   archived_at: string | null;
   class_count: number | string;
+  /** Comma-separated `classes.class_name` for classes you teach that this student is enrolled in (after DB migration). */
+  enrolled_class_names?: string | null;
   last_activity_at: string | null;
   attempt_count: number | string;
   avg_pct: number | string;
@@ -145,7 +147,7 @@ export interface StudentAttemptWithLabels {
   passed: boolean;
   completed_at?: string;
   students?: { full_name: string } | null;
-  question_sets?: { id: string; title: string } | null;
+  question_sets?: { id: string; title: string; classes?: { class_name: string } | { class_name: string }[] | null } | null;
 }
 
 /** Row from weekly/monthly/term student leaderboard views (RLS: teacher’s classes only). */

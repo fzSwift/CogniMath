@@ -8,6 +8,8 @@ for delete using (
     select 1
     from public.student_attempts sa
     join public.question_sets qs on qs.id = sa.question_set_id
-    where sa.id = student_answers.attempt_id and qs.teacher_id = auth.uid()
+    join public.classes c on c.id = qs.class_id
+    where sa.id = student_answers.attempt_id
+      and c.teacher_id = auth.uid()
   )
 );

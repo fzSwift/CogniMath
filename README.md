@@ -11,7 +11,7 @@ Built with React, Vite, TypeScript, Tailwind CSS, Supabase, React Router, and Re
 - Class list: **search/sort**, counts (students / question sets / pending joins), **copy invite code**, deep-link to pending requests
 - Class detail: **health strip** (avg score, pass rate, last activity), **analytics deep link** (`?classId=`)
 - Class invite code + QR for Unity students; pending join requests teachers approve or reject
-- Students: metrics list (classes, last activity), filter by class, sort, archive/restore; **create student requires picking a class** (RPC enrolls in one transaction); student detail: edit profile, learning snapshot, weak topics per learner, permanent delete with cascade warning
+- Students: metrics list with **name · class** labels (enrolled classes you teach), filter by class / search by class name, sort, archive/restore; **create student requires picking a class** (RPC enrolls in one transaction); student detail: edit profile, learning snapshot, weak topics per learner, permanent delete with cascade warning
 - Question set creation with threshold score
 - Question management by difficulty and sequence
 - Student attempts and selected/correct answer review
@@ -59,6 +59,16 @@ npm install
    - `supabase/upgrade_create_student_for_class.sql` (teacher **Students** page: `create_student_for_class` RPC — create + enroll atomically)
    - `supabase/upgrade_bootstrap_teacher_workspace.sql` (`bootstrap_teacher_workspace` RPC — ensure `profiles` row + starter class if teacher has none)
    - `supabase/upgrade_admin_teacher_isolation.sql` (`created_by_teacher_id`, stricter student visibility, admin RLS, RPC/view updates)
+   - `supabase/upgrade_class_owner_question_set_rls.sql` (question sets / attempts / answers / progress scoped by **class owner** — not only `question_sets.teacher_id`)
+   - `supabase/upgrade_student_teacher_metrics_class_names.sql` (adds `enrolled_class_names` to `student_teacher_metrics` for dashboard **Name · class** labels; safe after any prior `student_teacher_metrics` definition)
+   - `supabase/upgrade_profiles_role_guard_sql_editor.sql` (only if `UPDATE profiles SET role` fails in SQL Editor on an older DB — allows role changes when `auth.uid()` is null)
+   - `supabase/promote_admin.sql` (reference: promote/demote `profiles.role` by UUID or email)
+
+   Optional bulk question banks (replace UUID placeholders, then run in SQL Editor):
+
+   - `supabase/seed_subtraction_basics_for_class.sql`
+   - `supabase/seed_multiplication_basics_for_class.sql`
+   - `supabase/seed_division_basics_for_class.sql`
 
 4. Create `.env` in project root from `.env.example`:
 
@@ -98,14 +108,16 @@ Without those redirects on the allow list, Supabase may block or ignore `emailRe
 
 ### Multi-tenant isolation (teachers vs admin)
 
-- **`teacher`** accounts (default at signup) only see rows tied to them: classes where `teacher_id` is their profile id, question sets for those classes, join requests for those classes, attempts for those sets, and **students** who are either enrolled in one of their classes **or** were created by them (`students.created_by_teacher_id`). Other teachers’ data is hidden by RLS.
-- **`admin`** accounts see and manage **everything** via extra policies (`is_admin()` reads `profiles.role = 'admin'`). Promote a user in the SQL Editor (service role / postgres), for example:
+- **`teacher`** accounts (default at signup) only see rows tied to them: classes where `teacher_id` is their profile id; join requests for those classes; **students** enrolled in their classes or created by them (`students.created_by_teacher_id`); and question sets / attempts / answers / progress for sets whose **`class_id` belongs to a class they own** (another teacher cannot attach sets to your class and see that data).
+- **`admin`** accounts see and manage **everything** via extra policies (`is_admin()` reads `profiles.role = 'admin'`). New signups get **`teacher`** by default.
+- To **create an admin**: apply **`supabase/upgrade_admin_teacher_isolation.sql`** (or full `schema.sql`) first, then in the SQL Editor run the steps in **`supabase/promote_admin.sql`** (by user UUID or email). The `profiles_role_guard` trigger allows that `UPDATE` when the editor session has no JWT (`auth.uid()` is null); from the app, only an existing admin can change `profiles.role`.
 
 ```sql
-update public.profiles set role = 'admin' where id = '<paste-auth-user-uuid>';
+-- Example: promote one user (UUID from Supabase → Authentication → Users)
+update public.profiles set role = 'admin' where id = '<paste-user-uuid>';
 ```
 
-Run **`supabase/upgrade_admin_teacher_isolation.sql`** on existing projects so this column, policies, RPC updates, and `student_teacher_metrics` stay in sync.
+On older databases, if promotion in the SQL Editor still errors, run **`supabase/upgrade_profiles_role_guard_sql_editor.sql`** once.
 
 ### Teacher workspace bootstrap
 

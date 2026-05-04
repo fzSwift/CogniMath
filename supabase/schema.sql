@@ -7,6 +7,14 @@ create table if not exists public.profiles (
   created_at timestamp with time zone default now()
 );
 
+do $$
+begin
+  alter table public.profiles add constraint profiles_role_check check (role in ('teacher', 'admin'));
+exception
+  when duplicate_object then null;
+end;
+$$;
+
 create table if not exists public.classes (
   id uuid primary key default gen_random_uuid(),
   teacher_id uuid references public.profiles (id) on delete cascade,
@@ -228,8 +236,11 @@ set search_path = public
 as $$
 begin
   if new.role is distinct from old.role then
-    if not exists (select 1 from public.profiles p where p.id = auth.uid() and p.role = 'admin') then
-      raise exception 'Only an admin may change profiles.role';
+    -- PostgREST / app: must be an authenticated admin. SQL Editor (no JWT): auth.uid() is null — allow for DB operators.
+    if auth.uid() is not null then
+      if not exists (select 1 from public.profiles p where p.id = auth.uid() and p.role = 'admin') then
+        raise exception 'Only an admin may change profiles.role';
+      end if;
     end if;
   end if;
   return new;
@@ -310,8 +321,22 @@ for select using (
   )
 );
 
-create policy "teacher manages own question sets" on public.question_sets
-for all using (teacher_id = auth.uid()) with check (teacher_id = auth.uid());
+-- Class creator owns all question sets for that class (not only qs.teacher_id).
+create policy "teacher manages question sets in own classes" on public.question_sets
+for all using (
+  exists (
+    select 1 from public.classes c
+    where c.id = question_sets.class_id
+      and c.teacher_id = auth.uid()
+  )
+) with check (
+  exists (
+    select 1 from public.classes c
+    where c.id = question_sets.class_id
+      and c.teacher_id = auth.uid()
+  )
+  and teacher_id = auth.uid()
+);
 
 drop policy if exists "anon can read active question sets" on public.question_sets;
 create policy "anon can read active question sets" on public.question_sets
@@ -321,13 +346,19 @@ using (is_active = true);
 create policy "teacher manages questions from own sets" on public.questions
 for all using (
   exists (
-    select 1 from public.question_sets qs
-    where qs.id = questions.question_set_id and qs.teacher_id = auth.uid()
+    select 1
+    from public.question_sets qs
+    join public.classes c on c.id = qs.class_id
+    where qs.id = questions.question_set_id
+      and c.teacher_id = auth.uid()
   )
 ) with check (
   exists (
-    select 1 from public.question_sets qs
-    where qs.id = questions.question_set_id and qs.teacher_id = auth.uid()
+    select 1
+    from public.question_sets qs
+    join public.classes c on c.id = qs.class_id
+    where qs.id = questions.question_set_id
+      and c.teacher_id = auth.uid()
   )
 );
 
@@ -346,7 +377,9 @@ for select using (
   exists (
     select 1
     from public.question_sets qs
-    where qs.id = student_attempts.question_set_id and qs.teacher_id = auth.uid()
+    join public.classes c on c.id = qs.class_id
+    where qs.id = student_attempts.question_set_id
+      and c.teacher_id = auth.uid()
   )
 );
 
@@ -355,13 +388,17 @@ for all using (
   exists (
     select 1
     from public.question_sets qs
-    where qs.id = student_attempts.question_set_id and qs.teacher_id = auth.uid()
+    join public.classes c on c.id = qs.class_id
+    where qs.id = student_attempts.question_set_id
+      and c.teacher_id = auth.uid()
   )
 ) with check (
   exists (
     select 1
     from public.question_sets qs
-    where qs.id = student_attempts.question_set_id and qs.teacher_id = auth.uid()
+    join public.classes c on c.id = qs.class_id
+    where qs.id = student_attempts.question_set_id
+      and c.teacher_id = auth.uid()
   )
 );
 
@@ -400,7 +437,9 @@ for select using (
     select 1
     from public.student_attempts sa
     join public.question_sets qs on qs.id = sa.question_set_id
-    where sa.id = student_answers.attempt_id and qs.teacher_id = auth.uid()
+    join public.classes c on c.id = qs.class_id
+    where sa.id = student_answers.attempt_id
+      and c.teacher_id = auth.uid()
   )
 );
 
@@ -410,7 +449,9 @@ for delete using (
     select 1
     from public.student_attempts sa
     join public.question_sets qs on qs.id = sa.question_set_id
-    where sa.id = student_answers.attempt_id and qs.teacher_id = auth.uid()
+    join public.classes c on c.id = qs.class_id
+    where sa.id = student_answers.attempt_id
+      and c.teacher_id = auth.uid()
   )
 );
 
@@ -426,13 +467,17 @@ for all using (
   exists (
     select 1
     from public.question_sets qs
-    where qs.id = student_progress.question_set_id and qs.teacher_id = auth.uid()
+    join public.classes c on c.id = qs.class_id
+    where qs.id = student_progress.question_set_id
+      and c.teacher_id = auth.uid()
   )
 ) with check (
   exists (
     select 1
     from public.question_sets qs
-    where qs.id = student_progress.question_set_id and qs.teacher_id = auth.uid()
+    join public.classes c on c.id = qs.class_id
+    where qs.id = student_progress.question_set_id
+      and c.teacher_id = auth.uid()
   )
 );
 
@@ -1167,7 +1212,11 @@ select
    from public.student_attempts sa
    join public.question_sets qs on qs.id = sa.question_set_id
    join public.classes c on c.id = qs.class_id and c.teacher_id = auth.uid()
-   where sa.student_id = s.id) as passed_count
+   where sa.student_id = s.id) as passed_count,
+  (select string_agg(c2.class_name, ', ' order by c2.class_name)
+   from public.class_students cs2
+   join public.classes c2 on c2.id = cs2.class_id and c2.teacher_id = auth.uid()
+   where cs2.student_id = s.id) as enrolled_class_names
 from public.students s
 where s.created_by_teacher_id = auth.uid()
    or exists (

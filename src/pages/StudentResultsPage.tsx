@@ -3,6 +3,7 @@ import type { FormEvent } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { Alert } from "../components/ui/Alert";
 import { Card } from "../components/ui/Card";
+import { formatStudentWithClasses } from "../lib/studentDisplay";
 import { supabase } from "../lib/supabase";
 import type { Student, StudentClassEnrollment, WeakTopicsViewRow } from "../types";
 
@@ -128,6 +129,8 @@ export function StudentResultsPage() {
     })
     .filter(Boolean) as { rowId: string; c: { id: string; class_name: string; description: string | null } }[];
 
+  const enrolledClassNamesLabel = enrollmentRows.map((x) => x.c.class_name).join(", ") || null;
+
   const saveProfile = async (e: FormEvent) => {
     e.preventDefault();
     if (!studentId) return;
@@ -192,7 +195,9 @@ export function StudentResultsPage() {
     <div className="space-y-6">
       {error ? <Alert variant="error">{error}</Alert> : null}
       <Card>
-        <h2 className="text-lg font-semibold">{student?.full_name ?? "—"}</h2>
+        <h2 className="text-lg font-semibold">
+          {student ? formatStudentWithClasses(student.full_name, enrolledClassNamesLabel) : "—"}
+        </h2>
         <p className="text-sm text-slate-500">Profile & roster (teacher view)</p>
       </Card>
 

@@ -3,17 +3,13 @@ import type { FormEvent } from "react";
 import { Link } from "react-router-dom";
 import { Alert } from "../components/ui/Alert";
 import { Card } from "../components/ui/Card";
+import { formatStudentWithClasses } from "../lib/studentDisplay";
 import { supabase } from "../lib/supabase";
 import type { StudentTeacherMetric } from "../types";
 
 function fmtShortDate(iso: string | null) {
   if (!iso) return "—";
   return new Date(iso).toLocaleDateString(undefined, { day: "numeric", month: "short", year: "numeric" });
-}
-
-function num(v: number | string | null | undefined) {
-  if (v === null || v === undefined) return 0;
-  return typeof v === "number" ? v : Number(v);
 }
 
 export function StudentsPage() {
@@ -129,7 +125,10 @@ export function StudentsPage() {
     }
     const q = search.trim().toLowerCase();
     if (q) {
-      list = list.filter((r) => r.full_name.toLowerCase().includes(q) || r.username.toLowerCase().includes(q));
+      list = list.filter((r) => {
+        const classesStr = (r.enrolled_class_names ?? "").toLowerCase();
+        return r.full_name.toLowerCase().includes(q) || r.username.toLowerCase().includes(q) || classesStr.includes(q);
+      });
     }
     const copy = [...list];
     copy.sort((a, b) => {
@@ -239,7 +238,6 @@ export function StudentsPage() {
           <p className="text-sm text-slate-600">No students match your filters.</p>
         ) : (
           filteredSorted.map((r) => {
-            const cc = num(r.class_count);
             const last = fmtShortDate(r.last_activity_at);
             const archived = Boolean(r.archived_at);
             return (
@@ -249,13 +247,11 @@ export function StudentsPage() {
               >
                 <Link to={`/student-results/${r.student_id}`} className="min-w-0 flex-1 hover:text-indigo-800">
                   <div className="flex flex-wrap items-baseline gap-x-2 gap-y-0">
-                    <span className="font-semibold">{r.full_name}</span>
+                    <span className="font-semibold">{formatStudentWithClasses(r.full_name, r.enrolled_class_names)}</span>
                     <span className="text-slate-500">@{r.username}</span>
                     {archived ? <span className="rounded bg-amber-100 px-1.5 text-xs text-amber-900">Archived</span> : null}
                   </div>
-                  <p className="mt-1 text-xs text-slate-600">
-                    {cc} {cc === 1 ? "class" : "classes"} · last active {last}
-                  </p>
+                  <p className="mt-1 text-xs text-slate-600">Last active {last}</p>
                 </Link>
                 <div className="flex shrink-0 flex-wrap gap-2">
                   {archived ? (

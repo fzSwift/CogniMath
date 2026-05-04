@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { Alert } from "../components/ui/Alert";
 import { Card } from "../components/ui/Card";
+import { formatStudentWithClasses } from "../lib/studentDisplay";
 import { supabase } from "../lib/supabase";
 import type { ClassLeaderboardRow, StudentLeaderboardRow } from "../types";
 
@@ -105,8 +106,7 @@ export function LeaderboardPage() {
                   <tr className="border-b text-xs uppercase tracking-wide text-slate-500">
                     <th className="py-2 pr-3">Rank (class)</th>
                     <th className="py-2 pr-3">Overall</th>
-                    <th className="py-2 pr-3">Student</th>
-                    <th className="py-2 pr-3">Class</th>
+                    <th className="py-2 pr-3">Student · class</th>
                     <th className="py-2 pr-3 text-right">Points</th>
                     <th className="py-2">Open</th>
                   </tr>
@@ -116,8 +116,7 @@ export function LeaderboardPage() {
                     <tr key={`${r.class_id}-${r.student_id}`} className="border-b border-slate-100">
                       <td className="py-2 pr-3 font-medium">{num(r.rank)}</td>
                       <td className="py-2 pr-3 text-slate-600">{num(r.overall_rank)}</td>
-                      <td className="py-2 pr-3">{r.student_name}</td>
-                      <td className="py-2 pr-3">{r.class_name}</td>
+                      <td className="py-2 pr-3">{formatStudentWithClasses(r.student_name, r.class_name)}</td>
                       <td className="py-2 pr-3 text-right font-medium">{num(r.total_points)}</td>
                       <td className="py-2">
                         <div className="flex flex-wrap gap-2 text-xs">

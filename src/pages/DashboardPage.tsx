@@ -5,6 +5,7 @@ import { Card } from "../components/ui/Card";
 import { PassFailPie } from "../components/charts/PassFailPie";
 import { PerformanceChart } from "../components/charts/PerformanceChart";
 import { StatCard } from "../components/ui/StatCard";
+import { formatStudentWithClasses } from "../lib/studentDisplay";
 import { supabase } from "../lib/supabase";
 import type { ClassDashboardRow, DashboardStats, StudentAttemptWithLabels } from "../types";
 
@@ -43,6 +44,13 @@ function shortDate(iso?: string): string {
 function unwrapQsNested(q: StudentAttemptWithLabels["question_sets"]) {
   if (!q) return null;
   return Array.isArray(q) ? q[0] : q;
+}
+
+function classNameFromQsNested(q: StudentAttemptWithLabels["question_sets"]) {
+  const qs = unwrapQsNested(q);
+  const raw = qs?.classes;
+  const c = Array.isArray(raw) ? raw[0] : raw;
+  return c?.class_name ?? null;
 }
 
 async function fetchAttemptRowsInRange(
@@ -101,7 +109,7 @@ export function DashboardPage() {
 
     let q = supabase
       .from("student_attempts")
-      .select("id, student_id, percentage, passed, completed_at, students(full_name), question_sets(id, title)")
+      .select("id, student_id, percentage, passed, completed_at, students(full_name), question_sets(id, title, classes(class_name))")
       .order("completed_at", { ascending: false })
       .limit(8);
     if (from) q = q.gte("completed_at", from);
@@ -351,7 +359,8 @@ export function DashboardPage() {
               const sid = attempt.student_id;
               const qso = unwrapQsNested(attempt.question_sets);
               const qsid = qso?.id;
-              const name = attempt.students?.full_name ?? "Student";
+              const className = classNameFromQsNested(attempt.question_sets);
+              const name = formatStudentWithClasses(attempt.students?.full_name ?? "Student", className);
               const title = qso?.title ?? "—";
               const when = shortDate(attempt.completed_at);
               return (

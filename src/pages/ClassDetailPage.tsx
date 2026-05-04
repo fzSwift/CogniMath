@@ -5,6 +5,7 @@ import QRCode from "react-qr-code";
 import { Alert } from "../components/ui/Alert";
 import { Card } from "../components/ui/Card";
 import { generateInviteCode } from "../lib/inviteCode";
+import { formatStudentWithClasses } from "../lib/studentDisplay";
 import { supabase } from "../lib/supabase";
 import type { ClassDashboardRow, ClassJoinRequest, Student } from "../types";
 
@@ -30,6 +31,8 @@ export function ClassDetailPage() {
   const [classBusy, setClassBusy] = useState(false);
   const [editBusy, setEditBusy] = useState(false);
   const [loadError, setLoadError] = useState("");
+  /** Other class names per student (for "Add student" picker labels). */
+  const [enrolledClassNamesByStudent, setEnrolledClassNamesByStudent] = useState<Record<string, string>>({});
 
   const isArchived = Boolean(classRow?.archived_at);
 
@@ -41,7 +44,7 @@ export function ClassDetailPage() {
   const load = async () => {
     if (!id) return;
     setLoadError("");
-    const [dashRes, studentsRes, setsRes, allStudentsRes, requestsRes] = await Promise.all([
+    const [dashRes, studentsRes, setsRes, allStudentsRes, requestsRes, metricsRes] = await Promise.all([
       supabase.from("class_dashboard_row").select("*").eq("id", id).single(),
       supabase.from("class_students").select("id, students(*)").eq("class_id", id),
       supabase.from("question_sets").select("id, title, threshold_score").eq("class_id", id),
@@ -52,6 +55,7 @@ export function ClassDetailPage() {
         .eq("class_id", id)
         .eq("status", "pending")
         .order("created_at", { ascending: false }),
+      supabase.from("student_teacher_metrics").select("student_id, enrolled_class_names"),
     ]);
 
     if (dashRes.error || !dashRes.data) {
@@ -72,6 +76,17 @@ export function ClassDetailPage() {
     setQuestionSets(setsRes.data ?? []);
     setAllStudents((allStudentsRes.data ?? []) as Student[]);
     setJoinRequests((requestsRes.data ?? []) as ClassJoinRequest[]);
+    if (!metricsRes.error) {
+      const map: Record<string, string> = {};
+      for (const row of metricsRes.data ?? []) {
+        const sid = (row as { student_id: string }).student_id;
+        const names = (row as { enrolled_class_names?: string | null }).enrolled_class_names;
+        if (sid && names?.trim()) map[sid] = names.trim();
+      }
+      setEnrolledClassNamesByStudent(map);
+    } else {
+      setEnrolledClassNamesByStudent({});
+    }
   };
 
   useEffect(() => {
@@ -488,7 +503,7 @@ export function ClassDetailPage() {
               <option value="">Select student</option>
               {studentsNotInClass.map((s) => (
                 <option key={s.id} value={s.id}>
-                  {s.full_name}
+                  {formatStudentWithClasses(s.full_name, enrolledClassNamesByStudent[s.id])}
                 </option>
               ))}
             </select>

@@ -48,8 +48,10 @@ set search_path = public
 as $$
 begin
   if new.role is distinct from old.role then
-    if not exists (select 1 from public.profiles p where p.id = auth.uid() and p.role = 'admin') then
-      raise exception 'Only an admin may change profiles.role';
+    if auth.uid() is not null then
+      if not exists (select 1 from public.profiles p where p.id = auth.uid() and p.role = 'admin') then
+        raise exception 'Only an admin may change profiles.role';
+      end if;
     end if;
   end if;
   return new;
@@ -210,7 +212,11 @@ select
    from public.student_attempts sa
    join public.question_sets qs on qs.id = sa.question_set_id
    join public.classes c on c.id = qs.class_id and c.teacher_id = auth.uid()
-   where sa.student_id = s.id) as passed_count
+   where sa.student_id = s.id) as passed_count,
+  (select string_agg(c2.class_name, ', ' order by c2.class_name)
+   from public.class_students cs2
+   join public.classes c2 on c2.id = cs2.class_id and c2.teacher_id = auth.uid()
+   where cs2.student_id = s.id) as enrolled_class_names
 from public.students s
 where s.created_by_teacher_id = auth.uid()
    or exists (
